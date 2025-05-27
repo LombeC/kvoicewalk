@@ -15,5 +15,5 @@ interpolated/
 *.bin
 
 .DS_Store
-.idea
+.idea/*
 
