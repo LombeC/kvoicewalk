@@ -13,3 +13,7 @@ out/
 interpolated/
 /*.wav
 *.bin
+
+.DS_Store
+.idea
+
