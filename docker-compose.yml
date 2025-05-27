@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  kvoicewalk:
+    build: .
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    volumes:
+      - .:/app
+      - ~/.cache/torch:/root/.cache/torch
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    working_dir: /app
+    command: bash scripts/run/run.sh
