@@ -1,12 +1,15 @@
+from __future__ import annotations
+
 import os
 import torch
 import random
+
 
 class VoiceGenerator:
     def __init__(self, voices: list[torch.Tensor], starting_voice: str | None):
         self.voices = voices
 
-        self.stacked = torch.stack(voices,dim=0)
+        self.stacked = torch.stack(voices, dim=0)
         self.mean = self.stacked.mean(dim=0)
         self.std = self.stacked.std(dim=0)
         self.min = self.stacked.min(dim=0)[0]
@@ -17,7 +20,8 @@ class VoiceGenerator:
         else:
             self.starting_voice = self.mean
 
-    def generate_voice(self,base_tensor: torch.Tensor | None,diversity: float = 1.0, device: str = "cpu", clip: bool = False):
+    def generate_voice(self, base_tensor: torch.Tensor | None, diversity: float = 1.0, device: str = "cpu",
+                       clip: bool = False):
         """Generate a new voice tensor based on the base_tensor and diversity.
 
         Args:
@@ -34,7 +38,7 @@ class VoiceGenerator:
         else:
             base_tensor = base_tensor.clone().to(device)
 
-         # Generate random noise with same shape
+        # Generate random noise with same shape
         noise = torch.randn_like(base_tensor, device=device)
 
         # Scale noise by standard deviation and the noise_scale factor
@@ -48,4 +52,4 @@ class VoiceGenerator:
 
         return new_tensor
 
-    #TODO: Make more voice genration functions
+    # TODO: Make more voice genration functions
