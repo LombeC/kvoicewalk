@@ -32,7 +32,7 @@ def main():
     parser.add_argument("--output", type=str,
                       help="Filename for the generated output audio",
                       default="out.wav")
-    parser.add_argument("--mode", choices=["walk", "pca", "anneal", "bayes", "mixed", "genetic"], default="walk",
+    parser.add_argument("--mode", choices=["walk", "pca", "anneal", "bayes", "mixed", "genetic", "optuna", "pca_optuna" ], default="walk",
                         help="Choose the search strategy: walk (default), or hybrid (PCA + CMA-ES).")
 
     # Arguments for random walk mode

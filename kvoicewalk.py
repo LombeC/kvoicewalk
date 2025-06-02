@@ -44,6 +44,10 @@ class KVoiceWalk:
             self.mixed_strategy_search(step_limit)
         elif self.mode == "genetic":
             self.genetic_search(step_limit)
+        elif self.mode == "pca_optuna":
+            self.pca_optuna_search(step_limit)
+        elif self.mode == "optuna":
+            self.search_optuna(step_limit)
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
 
