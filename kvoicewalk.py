@@ -187,6 +187,66 @@ class KVoiceWalk:
             # Cool the temperature
             T = max(T_final, T * alpha)
 
+    def search_optuna(self, step_limit: int):
+        """
+        Run a Bayesian optimization using Optuna over the latent space.
+        Optimizes the score returned by `score_voice()` for generated voices.
+
+        It starts from the initial voice and performs smarter sampling via TPE (Tree-structured Parzen Estimator).
+        """
+
+        import optuna
+        import numpy as np
+
+        tqdm.write(">> Starting Optuna-guided latent space search...")
+        os.makedirs(OUT_DIR, exist_ok=True)
+
+        # Starting point
+        best_voice = self.starting_voice
+        original_shape = best_voice.shape
+        best_vec = best_voice.view(-1).numpy()
+
+        best_results = self.score_voice(best_voice)
+        dim = best_vec.shape[0]
+
+        tqdm.write(f'Initial -> Target Sim:{best_results["target_similarity"]:.3f}, '
+                f'Self Sim:{best_results["self_similarity"]:.3f}, '
+                f'Feature Sim:{best_results["feature_similarity"]:.2f}, '
+                f'Score:{best_results["score"]:.2f}')
+
+        def objective(trial):
+            # Sample perturbation vector around the starting vector
+            delta = np.array([trial.suggest_float(f"x{i}", -0.5, 0.5) for i in range(dim)])
+            candidate_vec = best_vec + delta
+            candidate_tensor = torch.tensor(candidate_vec, dtype=torch.float32).view(original_shape)
+
+            min_similarity = best_results["target_similarity"] * 0.98
+            result = self.score_voice(candidate_tensor, min_similarity)
+            trial.set_user_attr("score", result["score"])
+
+            # Save best audio so far
+            nonlocal best_results, best_voice
+            if result["score"] > best_results["score"]:
+                best_results = result
+                best_voice = candidate_tensor
+                step = trial.number
+                tqdm.write(f'Step:{step:<4} Target Sim:{result["target_similarity"]:.3f} '
+                        f'Self Sim:{result["self_similarity"]:.3f} '
+                        f'Feature Sim:{result["feature_similarity"]:.3f} '
+                        f'Score:{result["score"]:.2f}')
+                torch.save(best_voice, f'{OUT_DIR}/optuna_{result["score"]:.2f}_{result["target_similarity"]:.2f}_{step}.pt')
+                sf.write(f'{OUT_DIR}/optuna_{result["score"]:.2f}_{result["target_similarity"]:.2f}_{step}.wav',
+                        result["audio"], 24000)
+
+            return -result["score"]  # Optuna minimizes
+
+        # Run study
+        sampler = optuna.samplers.TPESampler(multivariate=True, seed=42)
+        study = optuna.create_study(sampler=sampler)
+        study.optimize(objective, n_trials=step_limit, show_progress_bar=True)
+
+        tqdm.write(f">> Optuna search complete. Best Score: {best_results['score']:.2f}")
+
     def bayesian_opt_search(self, step_limit: int):
         from skopt import gp_minimize
         from skopt.space import Real
@@ -376,6 +436,103 @@ class KVoiceWalk:
             population = next_population
 
         tqdm.write(f">> Genetic algorithm complete. Final score: {best_score:.2f}")
+
+    def pca_optuna_search(self, step_limit: int):
+        """
+        Uses PCA to explore high-variance directions in the voice latent space,
+        then refines the best candidate using Bayesian Optimization (Optuna).
+
+        Steps:
+        1. PCA-guided sweep along principal components from top-performing voices.
+        2. Optuna refines the best PCA-discovered voice vector using TPE sampler.
+
+        This avoids CMA-ES, supports early stopping, and works directly in raw latent space.
+        """
+
+        import os
+        import numpy as np
+        import optuna
+        from sklearn.decomposition import PCA
+
+        tqdm.write(">> Starting PCA-guided initialization with Optuna refinement...")
+        os.makedirs(OUT_DIR, exist_ok=True)
+
+        # Step 0 — Score the starting voice
+        best_voice = self.starting_voice
+        original_shape = best_voice.shape
+        best_vec = best_voice.view(-1).numpy()
+        best_results = self.score_voice(best_voice)
+        tqdm.write(f'Initial -> Target Sim:{best_results["target_similarity"]:.3f}, '
+                f'Self Sim:{best_results["self_similarity"]:.3f}, '
+                f'Feature Sim:{best_results["feature_similarity"]:.2f}, '
+                f'Score:{best_results["score"]:.2f}')
+
+        # Step 1 — PCA sweep on top-performing voices
+        stacked = torch.stack(self.voice_generator.voices).view(len(self.voice_generator.voices), -1).numpy()
+        pca = PCA(n_components=4)
+        pca.fit(stacked)
+
+        pbar = tqdm(total=step_limit // 2, desc="PCA Sweep")
+        best_pca_score = best_results["score"]
+
+        for dim in range(pca.n_components_):
+            for alpha in np.linspace(-2, 2, num=step_limit // (2 * pca.n_components_)):
+                vec = best_vec + alpha * pca.components_[dim]
+                voice = torch.tensor(vec, dtype=torch.float32).view(original_shape)
+
+                min_similarity = best_results["target_similarity"] * 0.98
+                results = self.score_voice(voice, min_similarity)
+
+                if results["score"] > best_pca_score:
+                    best_pca_score = results["score"]
+                    best_results = results
+                    best_voice = voice
+                    best_vec = vec
+                    tqdm.write(f'PCA Dim:{dim} α:{alpha:.2f} → Score:{results["score"]:.2f}')
+                    torch.save(voice, f'{OUT_DIR}/pca_{results["score"]:.2f}_{results["target_similarity"]:.2f}.pt')
+                    sf.write(f'{OUT_DIR}/pca_{results["score"]:.2f}_{results["target_similarity"]:.2f}.wav',
+                            results["audio"], 24000)
+
+                pbar.update(1)
+        pbar.close()
+
+        tqdm.write(f">> Best PCA score: {best_pca_score:.2f} — proceeding to Optuna refinement...")
+
+        # Step 2 — Optuna-based fine-tuning in latent space
+        dim = best_vec.shape[0]
+
+        def objective(trial):
+            # Define deltas from PCA-best vector
+            delta = np.array([trial.suggest_float(f"x{i}", -0.3, 0.3) for i in range(dim)])
+            candidate_vec = best_vec + delta
+            candidate_tensor = torch.tensor(candidate_vec, dtype=torch.float32).view(original_shape)
+
+            # Score candidate and record improvements
+            min_similarity = best_results["target_similarity"] * 0.98
+            result = self.score_voice(candidate_tensor, min_similarity)
+            trial.set_user_attr("score", result["score"])
+
+            nonlocal best_results, best_voice
+            if result["score"] > best_results["score"]:
+                best_results = result
+                best_voice = candidate_tensor
+                step = trial.number
+                tqdm.write(f'Step:{step:<4} Target Sim:{result["target_similarity"]:.3f} '
+                        f'Self Sim:{result["self_similarity"]:.3f} '
+                        f'Feature Sim:{result["feature_similarity"]:.3f} '
+                        f'Score:{result["score"]:.2f}')
+                torch.save(best_voice, f'{OUT_DIR}/optuna_{result["score"]:.2f}_{result["target_similarity"]:.2f}_{step}.pt')
+                sf.write(f'{OUT_DIR}/optuna_{result["score"]:.2f}_{result["target_similarity"]:.2f}_{step}.wav',
+                        result["audio"], 24000)
+
+            return -result["score"]  # Optuna minimizes
+
+        study = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=42))
+        study.optimize(objective, n_trials=step_limit // 2, show_progress_bar=True)
+
+        tqdm.write(f">> PCA+Optuna search complete. Best Score: {best_results['score']:.2f}")
+
+
 
     def score_voice(self,voice: torch.Tensor,min_similarity: float = 0.0) -> dict[str,Any]:
         """Using a harmonic mean calculation to provide a score for the voice in similarity"""
