@@ -41,7 +41,7 @@ echo "uv is ready: $(command -v uv)"
 
 TARGET_TEXT="The old lighthouse keeper never imagined that one day he'd be guiding ships from the comfort of his living room, but with modern technology and an array of cameras, he did just that, sipping tea while the storm raged outside and gulls shrieked overhead."
 TARGET_AUDIO="example/target.wav"
-STARTING_VOICE="example/95.38_0.96_4928.pt"
+STARTING_VOICE="example/95.65_0.96_18757.pt"
 STEP_LIMIT=30000
 MODE="mixed"
 if [[ ! -f "$TARGET_AUDIO" ]]; then
