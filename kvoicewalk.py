@@ -45,19 +45,20 @@ class KVoiceWalk:
 
         tqdm.write(">> Starting PCA-guided initialization...")
 
-        stacked = torch.stack(self.voice_generator.voices).view(len(self.voice_generator.voices), -1).numpy()
-        original_shape = self.voice_generator.voices[0].shape
+        os.makedirs(OUT_DIR, exist_ok=True)
 
-        pca = PCA(n_components=4)
-        pca.fit(stacked)
-
-        best_vec = pca.mean_
-        best_voice = torch.tensor(best_vec, dtype=torch.float32).view(original_shape)
+        # Score the actual starting voice
+        best_voice = self.starting_voice
+        original_shape = best_voice.shape
         best_results = self.score_voice(best_voice)
+        best_vec = best_voice.view(-1).numpy()
 
         tqdm.write(f'Target Sim:{best_results["target_similarity"]:.3f}, Self Sim:{best_results["self_similarity"]:.3f}, Feature Sim:{best_results["feature_similarity"]:.2f}, Score:{best_results["score"]:.2f}')
 
-        os.makedirs(OUT_DIR, exist_ok=True)
+        # Prepare PCA on top performer voices
+        stacked = torch.stack(self.voice_generator.voices).view(len(self.voice_generator.voices), -1).numpy()
+        pca = PCA(n_components=4)
+        pca.fit(stacked)
 
         total_iters = pca.n_components_ * (step_limit // pca.n_components_)
         pbar = tqdm(total=total_iters, desc="Hybrid Search")
@@ -65,7 +66,7 @@ class KVoiceWalk:
         step = 0
         for dim in range(pca.n_components_):
             for alpha in np.linspace(-2, 2, num=step_limit // pca.n_components_):
-                vec = pca.mean_ + alpha * pca.components_[dim]
+                vec = best_vec + alpha * pca.components_[dim]
                 voice = torch.tensor(vec, dtype=torch.float32).view(original_shape)
 
                 min_similarity = best_results["target_similarity"] * 0.98
