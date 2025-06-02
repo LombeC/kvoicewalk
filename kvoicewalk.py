@@ -38,6 +38,8 @@ class KVoiceWalk:
             self.hybrid_search(step_limit)
         elif self.mode == "anneal":
             self.random_walk_with_simulated_annealing(step_limit)
+        elif self.mode == "bayes":
+            self.bayesian_opt_search(step_limit)
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
 
@@ -160,6 +162,52 @@ class KVoiceWalk:
 
             # Cool the temperature
             T = max(T_final, T * alpha)
+
+    def bayesian_opt_search(self, step_limit: int):
+        from skopt import gp_minimize
+        from skopt.space import Real
+        from skopt.utils import use_named_args
+
+        tqdm.write(">> Starting Bayesian Optimization in raw latent space...")
+
+        original_shape = self.starting_voice.shape
+        latent_dim = self.starting_voice.numel()
+        starting_vec = self.starting_voice.view(-1).numpy()
+
+        # Search space for each dimension (can tighten bounds later)
+        space = [Real(-2.0, 2.0, name=f"dim_{i}") for i in range(latent_dim)]
+
+        best_score = -1
+        best_results = None
+        best_voice = self.starting_voice
+
+        @use_named_args(space)
+        def objective(**params):
+            vec = np.array([params[f"dim_{i}"] for i in range(latent_dim)], dtype=np.float32)
+            voice = torch.tensor(vec).view(original_shape)
+            results = self.score_voice(voice)
+            nonlocal best_score, best_results, best_voice
+
+            if results["score"] > best_score:
+                best_score = results["score"]
+                best_results = results
+                best_voice = voice
+                tqdm.write(f'New Best → Score: {best_score:.2f} | Target Sim: {results["target_similarity"]:.3f} | Self Sim: {results["self_similarity"]:.3f} | Feature Sim: {results["feature_similarity"]:.3f}')
+                sf.write(f'{OUT_DIR}/bo_best_{best_score:.2f}.wav', results["audio"], 24000)
+                torch.save(voice, f'{OUT_DIR}/bo_best_{best_score:.2f}.pt')
+
+            return -results["score"]  # because gp_minimize does minimization
+
+        # Run the actual optimization
+        gp_minimize(
+            objective,
+            space,
+            n_calls=step_limit,
+            x0=[starting_vec],
+            random_state=42
+        )
+
+        tqdm.write(f">> Bayesian Optimization complete. Final Score: {best_score:.2f}")
 
     def score_voice(self,voice: torch.Tensor,min_similarity: float = 0.0) -> dict[str,Any]:
         """Using a harmonic mean calculation to provide a score for the voice in similarity"""
