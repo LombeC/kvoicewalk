@@ -14,7 +14,8 @@ import os
 OUT_DIR = os.environ.get("KVOICEWALK_OUT_DIR","./out")
 
 class KVoiceWalk:
-    def __init__(self,target_audio: str,target_text: str,other_text:str,voice_folder:str,interpolate_start: bool,population_limit: int, starting_voice: str) -> None:
+    def __init__(self,target_audio: str,target_text: str,other_text:str,voice_folder:str,interpolate_start: bool,
+                 population_limit: int, starting_voice: str, mode: str) -> None:
         self.target_text = target_text
         self.other_text = other_text
         self.initial_selector = InitialSelector(target_audio,target_text,other_text,voice_folder=voice_folder)
@@ -28,6 +29,58 @@ class KVoiceWalk:
         self.voice_generator = VoiceGenerator(voices,starting_voice)
         # Either the mean or the supplied voice tensor
         self.starting_voice = self.voice_generator.starting_voice
+        self.mode = mode
+
+    def run(self, step_limit: int):
+        if self.mode == "walk":
+            self.random_walk(step_limit)
+        elif self.mode == "hybrid":
+            self.hybrid_search(step_limit)
+        else:
+            raise ValueError(f"Unknown mode: {self.mode}")
+
+    def hybrid_search(self, step_limit: int):
+        import numpy as np
+        from sklearn.decomposition import PCA
+
+        tqdm.write(">> Starting PCA-guided initialization...")
+
+        # Flatten voices for PCA
+        stacked = torch.stack(self.voice_generator.voices).view(len(self.voice_generator.voices), -1).numpy()
+        original_shape = self.voice_generator.voices[0].shape
+
+        # Fit PCA
+        pca = PCA(n_components=4)
+        pca.fit(stacked)
+
+        # Start from PCA mean
+        best_vec = pca.mean_
+        best_voice = torch.tensor(best_vec, dtype=torch.float32).view(original_shape)
+        best_results = self.score_voice(best_voice)
+        tqdm.write(f'Target Sim:{best_results["target_similarity"]:.3f}, Self Sim:{best_results["self_similarity"]:.3f}, Feature Sim:{best_results["feature_similarity"]:.2f}, Score:{best_results["score"]:.2f}')
+
+        os.makedirs(OUT_DIR, exist_ok=True)
+
+        step = 0
+        for dim in range(pca.n_components_):
+            for alpha in np.linspace(-2, 2, num=step_limit // pca.n_components_):
+                vec = pca.mean_ + alpha * pca.components_[dim]
+                voice = torch.tensor(vec, dtype=torch.float32).view(original_shape)
+
+                min_similarity = best_results["target_similarity"] * 0.98
+                results = self.score_voice(voice, min_similarity)
+
+                if results["score"] > best_results["score"]:
+                    best_results = results
+                    best_voice = voice
+                    tqdm.write(f'Step:{step:<4} Target Sim:{best_results["target_similarity"]:.3f} Self Sim:{best_results["self_similarity"]:.3f} Feature Sim:{best_results["feature_similarity"]:.3f} Score:{best_results["score"]:.2f} PCA Dim:{dim} α:{alpha:.2f}')
+
+                    torch.save(best_voice, f'{OUT_DIR}/{best_results["score"]:.2f}_{best_results["target_similarity"]:.2f}_{step}.pt')
+                    sf.write(f'{OUT_DIR}/{best_results["score"]:.2f}_{best_results["target_similarity"]:.2f}_{step}.wav', best_results["audio"], 24000)
+
+                step += 1
+
+        tqdm.write(f">> Hybrid search complete. Best Score: {best_results['score']:.2f}")
 
     def random_walk(self,step_limit: int):
         os.makedirs(OUT_DIR,exist_ok=True)

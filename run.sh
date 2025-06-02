@@ -40,8 +40,10 @@ echo "uv is ready: $(command -v uv)"
 # === Step 3: Define target ===
 
 TARGET_TEXT="The old lighthouse keeper never imagined that one day he'd be guiding ships from the comfort of his living room, but with modern technology and an array of cameras, he did just that, sipping tea while the storm raged outside and gulls shrieked overhead."
-TARGET_AUDIO="/app/example/target.wav"
-
+TARGET_AUDIO="example/target.wav"
+STARTING_VOICE="example/94.70_0.94_4001.pt"
+STEP_LIMIT=100000
+MODE="hybrid"
 if [[ ! -f "$TARGET_AUDIO" ]]; then
   echo "Target audio not found at: $TARGET_AUDIO"
   exit 1
@@ -50,4 +52,8 @@ fi
 # === Step 4: Run KVoiceWalk ===
 
 echo "Running KVoiceWalk..."
-uv run main.py --target_text "$TARGET_TEXT" --target_audio "$TARGET_AUDIO"
+uv run main.py --mode "$MODE" \
+      --target_text "$TARGET_TEXT" \
+      --target_audio "$TARGET_AUDIO" \
+      --starting_voice "$STARTING_VOICE" \
+      --step_limit "$STEP_LIMIT"

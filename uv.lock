@@ -300,6 +300,18 @@ wheels = [
 ]
 
 [[package]]
+name = "cma"
+version = "4.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/80/cd/5c2bdbe3cc765c5b8e68deaee199461aaa4b4ede126e66e28a343d435787/cma-4.2.0.tar.gz", hash = "sha256:1868605e751f5dd9f1a4f8a9b7c8844a5abe8e93a729dc46be6c6c0550269b9f", size = 276904, upload-time = "2025-05-19T17:56:56.002Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f8/ea/8354a45ea705bd0e67cbf67754bcc16ece4b09404ecf0228c479b6eef30b/cma-4.2.0-py3-none-any.whl", hash = "sha256:844dc93abaa427c5a37520586970c463dfce6f8aad5652e0fbd6e0229970f1ae", size = 288153, upload-time = "2025-05-19T17:56:51.844Z" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -578,6 +590,7 @@ name = "kvoicewalk"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "cma" },
     { name = "kokoro" },
     { name = "numpy" },
     { name = "pip" },
@@ -589,6 +602,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cma", specifier = "==4.2.0" },
     { name = "kokoro", specifier = ">=0.9.4" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pip", specifier = ">=25.1.1" },

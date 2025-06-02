@@ -32,6 +32,8 @@ def main():
     parser.add_argument("--output", type=str,
                       help="Filename for the generated output audio",
                       default="out.wav")
+    parser.add_argument("--mode", choices=["walk", "hybrid"], default="walk",
+                        help="Choose the search strategy: walk (default), or hybrid (PCA + CMA-ES).")
 
     # Arguments for random walk mode
     group_walk = parser.add_argument_group('Random Walk Mode')
@@ -91,8 +93,8 @@ def main():
                         args.voice_folder,
                         args.interpolate_start,
                         args.population_limit,
-                        args.starting_voice)
-        ktb.random_walk(args.step_limit)
-
+                        args.starting_voice,
+                        args.mode)
+        ktb.run(args.step_limit)
 if __name__ == "__main__":
     main()
