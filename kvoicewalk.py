@@ -34,7 +34,7 @@ class KVoiceWalk:
     def run(self, step_limit: int):
         if self.mode == "walk":
             self.random_walk(step_limit)
-        elif self.mode == "hybrid":
+        elif self.mode == "pca":
             self.pca_search(step_limit)
         elif self.mode == "anneal":
             self.random_walk_with_simulated_annealing(step_limit)
