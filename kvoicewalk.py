@@ -40,6 +40,10 @@ class KVoiceWalk:
             self.random_walk_with_simulated_annealing(step_limit)
         elif self.mode == "bayes":
             self.bayesian_opt_search(step_limit)
+        elif self.mode == "mixed":
+            self.mixed_strategy_search(step_limit)
+        elif self.mode == "genetic":
+            self.genetic_search(step_limit)
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
 
@@ -208,6 +212,150 @@ class KVoiceWalk:
         )
 
         tqdm.write(f">> Bayesian Optimization complete. Final Score: {best_score:.2f}")
+
+    def mixed_strategy_search(self, step_limit: int):
+        from sklearn.decomposition import PCA
+        from skopt import gp_minimize
+        from skopt.space import Real
+        from skopt.utils import use_named_args
+        import numpy as np
+
+        tqdm.write(">> Phase 1: PCA-guided coarse exploration...")
+
+        stacked = torch.stack(self.voice_generator.voices).view(len(self.voice_generator.voices), -1).numpy()
+        pca = PCA(n_components=4)
+        pca.fit(stacked)
+
+        best_score = -1
+        best_voice = None
+        best_results = None
+        original_shape = self.voice_generator.voices[0].shape
+
+        for dim in range(pca.n_components_):
+            for alpha in np.linspace(-2, 2, num=8):
+                vec = pca.mean_ + alpha * pca.components_[dim]
+                voice_tensor = torch.tensor(vec, dtype=torch.float32).view(original_shape)
+                results = self.score_voice(voice_tensor)
+                score = results["score"]
+                if score > best_score:
+                    best_score = score
+                    best_voice = voice_tensor
+                    best_results = results
+                    tqdm.write(f'PCA → Score: {score:.2f} | Target: {results["target_similarity"]:.3f}')
+                    sf.write(f'{OUT_DIR}/pca_best_{score:.2f}.wav', results["audio"], 24000)
+                    torch.save(voice_tensor, f'{OUT_DIR}/pca_best_{score:.2f}.pt')
+
+        tqdm.write(">> Phase 2: Bayesian Optimization...")
+
+        latent_dim = best_voice.numel()
+        best_vec = best_voice.view(-1).numpy()
+        space = [Real(-2.0, 2.0, name=f"dim_{i}") for i in range(latent_dim)]
+
+        @use_named_args(space)
+        def objective(**params):
+            vec = np.array([params[f"dim_{i}"] for i in range(latent_dim)], dtype=np.float32)
+            voice = torch.tensor(vec).view(original_shape)
+            results = self.score_voice(voice)
+            nonlocal best_score, best_voice, best_results
+            if results["score"] > best_score:
+                best_score = results["score"]
+                best_voice = voice
+                best_results = results
+                tqdm.write(f'Bayes → Score: {best_score:.2f} | Target: {results["target_similarity"]:.3f}')
+                sf.write(f'{OUT_DIR}/bayes_best_{best_score:.2f}.wav', results["audio"], 24000)
+                torch.save(voice, f'{OUT_DIR}/bayes_best_{best_score:.2f}.pt')
+            return -results["score"]
+
+        gp_minimize(objective, space, n_calls=step_limit // 2, x0=[best_vec], random_state=42)
+
+        tqdm.write(">> Phase 3: Simulated Annealing...")
+
+        voice = best_voice
+        results = best_results
+
+        for i in tqdm(range(step_limit // 2)):
+            temp = max(0.01, 1.0 - (i / (step_limit // 2)))
+            diversity = temp * 0.25  # scale range over time
+            new_voice = self.voice_generator.generate_voice(voice, diversity)
+            new_results = self.score_voice(new_voice, results["target_similarity"] * 0.98)
+
+            delta = new_results["score"] - results["score"]
+            accept_prob = np.exp(delta / temp) if delta < 0 else 1.0
+
+            if np.random.rand() < accept_prob:
+                voice = new_voice
+                results = new_results
+                if results["score"] > best_score:
+                    best_score = results["score"]
+                    best_voice = voice
+                    best_results = results
+                    tqdm.write(f'SA Step {i} → Score: {best_score:.2f} | Target: {results["target_similarity"]:.3f}')
+                    sf.write(f'{OUT_DIR}/sa_best_{best_score:.2f}.wav', results["audio"], 24000)
+                    torch.save(voice, f'{OUT_DIR}/sa_best_{best_score:.2f}.pt')
+
+        tqdm.write(f">> Mixed strategy complete. Final Score: {best_score:.2f}")
+
+    def genetic_search(self, step_limit: int):
+        import numpy as np
+        tqdm.write(">> Starting Genetic Algorithm search...")
+
+        population_size = 16
+        retain_top_k = 6
+        mutation_rate = 0.1
+        generations = step_limit
+
+        original_shape = self.voice_generator.voices[0].shape
+        dim = self.voice_generator.voices[0].numel()
+
+        # Initialize population from starting voice with noise
+        base_voice = self.starting_voice.view(-1)
+        population = [
+            base_voice + torch.randn_like(base_voice) * 0.05
+            for _ in range(population_size)
+        ]
+
+        def crossover(parent1, parent2):
+            mask = torch.rand_like(parent1) > 0.5
+            return torch.where(mask, parent1, parent2)
+
+        def mutate(tensor, rate):
+            noise = torch.randn_like(tensor) * rate
+            return tensor + noise
+
+        best_score = -1
+        best_voice = None
+        best_results = None
+
+        for gen in tqdm(range(generations)):
+            scored = []
+            for i, latent in enumerate(population):
+                voice_tensor = latent.view(original_shape)
+                results = self.score_voice(voice_tensor)
+                score = results["score"]
+                scored.append((score, latent, results))
+                if score > best_score:
+                    best_score = score
+                    best_voice = voice_tensor
+                    best_results = results
+                    tqdm.write(f'Gen {gen:<3} → Score: {score:.2f} | Target: {results["target_similarity"]:.3f}')
+                    sf.write(f'{OUT_DIR}/ga_best_{score:.2f}.wav', results["audio"], 24000)
+                    torch.save(voice_tensor, f'{OUT_DIR}/ga_best_{score:.2f}.pt')
+
+            # Select top performers
+            scored.sort(reverse=True, key=lambda x: x[0])
+            parents = [latent for _, latent, _ in scored[:retain_top_k]]
+
+            # Reproduce
+            next_population = []
+            while len(next_population) < population_size:
+                p1, p2 = random.sample(parents, 2)
+                child = crossover(p1, p2)
+                child = mutate(child, mutation_rate)
+                next_population.append(child)
+
+            population = next_population
+
+        tqdm.write(f">> Genetic algorithm complete. Final score: {best_score:.2f}")
 
     def score_voice(self,voice: torch.Tensor,min_similarity: float = 0.0) -> dict[str,Any]:
         """Using a harmonic mean calculation to provide a score for the voice in similarity"""
