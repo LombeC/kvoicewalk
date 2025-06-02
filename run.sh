@@ -41,8 +41,8 @@ echo "uv is ready: $(command -v uv)"
 
 TARGET_TEXT="The old lighthouse keeper never imagined that one day he'd be guiding ships from the comfort of his living room, but with modern technology and an array of cameras, he did just that, sipping tea while the storm raged outside and gulls shrieked overhead."
 TARGET_AUDIO="example/target.wav"
-STARTING_VOICE="example/94.70_0.94_4001.pt"
-STEP_LIMIT=100000
+STARTING_VOICE="example/94.79_0.94_31804.pt"
+STEP_LIMIT=30000
 MODE="anneal"
 if [[ ! -f "$TARGET_AUDIO" ]]; then
   echo "Target audio not found at: $TARGET_AUDIO"
