@@ -36,6 +36,8 @@ class KVoiceWalk:
             self.random_walk(step_limit)
         elif self.mode == "hybrid":
             self.hybrid_search(step_limit)
+        elif self.mode == "anneal":
+            self.random_walk_with_simulated_annealing(step_limit)
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
 
@@ -86,7 +88,6 @@ class KVoiceWalk:
         pbar.close()
         tqdm.write(f">> Hybrid search complete. Best Score: {best_results['score']:.2f}")
 
-
     def random_walk(self,step_limit: int):
         os.makedirs(OUT_DIR,exist_ok=True)
 
@@ -113,6 +114,52 @@ class KVoiceWalk:
                 # Save results so folks can listen
                 torch.save(best_voice, f'{OUT_DIR}/{best_results["score"]:.2f}_{best_results["target_similarity"]:.2f}_{i}.pt')
                 sf.write(f'{OUT_DIR}/{best_results["score"]:.2f}_{best_results["target_similarity"]:.2f}_{i}.wav', best_results["audio"], 24000)
+
+    def random_walk_with_simulated_annealing(self, step_limit: int):
+        import math
+
+        os.makedirs(OUT_DIR, exist_ok=True)
+
+        best_voice = self.starting_voice
+        best_results = self.score_voice(best_voice)
+        best_score = best_results["score"]
+        tqdm.write(f'>> Starting Random Walk with Simulated Annealing...')
+        tqdm.write(f'Target Sim:{best_results["target_similarity"]:.3f}, Self Sim:{best_results["self_similarity"]:.3f}, Feature Sim:{best_results["feature_similarity"]:.2f}, Score:{best_score:.2f}')
+
+        T_init = 1.0      # Initial temperature
+        T_final = 0.01    # Final temperature
+        alpha = 0.95      # Cooling rate
+
+        T = T_init
+
+        for i in tqdm(range(step_limit), desc="Simulated Annealing"):
+            diversity = random.uniform(0.01, 0.15)
+            new_voice = self.voice_generator.generate_voice(best_voice, diversity)
+
+            min_similarity = best_results["target_similarity"] * 0.98
+            new_results = self.score_voice(new_voice, min_similarity)
+            new_score = new_results["score"]
+
+            accept = False
+            if new_score > best_score:
+                accept = True
+            else:
+                delta = new_score - best_score
+                probability = math.exp(delta / T)
+                if random.random() < probability:
+                    accept = True
+
+            if accept:
+                best_voice = new_voice
+                best_results = new_results
+                best_score = new_score
+                tqdm.write(f'Step:{i:<4} Target Sim:{best_results["target_similarity"]:.3f} Self Sim:{best_results["self_similarity"]:.3f} Feature Sim:{best_results["feature_similarity"]:.3f} Score:{best_score:.2f} Diversity:{diversity:.2f} T:{T:.4f}')
+
+                torch.save(best_voice, f'{OUT_DIR}/{best_score:.2f}_{best_results["target_similarity"]:.2f}_{i}.pt')
+                sf.write(f'{OUT_DIR}/{best_score:.2f}_{best_results["target_similarity"]:.2f}_{i}.wav', best_results["audio"], 24000)
+
+            # Cool the temperature
+            T = max(T_final, T * alpha)
 
     def score_voice(self,voice: torch.Tensor,min_similarity: float = 0.0) -> dict[str,Any]:
         """Using a harmonic mean calculation to provide a score for the voice in similarity"""

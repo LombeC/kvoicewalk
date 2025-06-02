@@ -43,7 +43,7 @@ TARGET_TEXT="The old lighthouse keeper never imagined that one day he'd be guidi
 TARGET_AUDIO="example/target.wav"
 STARTING_VOICE="example/94.70_0.94_4001.pt"
 STEP_LIMIT=100000
-MODE="hybrid"
+MODE="anneal"
 if [[ ! -f "$TARGET_AUDIO" ]]; then
   echo "Target audio not found at: $TARGET_AUDIO"
   exit 1
