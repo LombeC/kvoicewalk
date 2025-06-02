@@ -23,7 +23,7 @@
 # Author: Lombe
 ################################################################################
 
-cd "out" || {
+cd "../../out" || {
   echo "Directory 'out/' does not exist. Exiting."
   exit 1
 }
