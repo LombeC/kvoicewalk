@@ -271,10 +271,10 @@ class KVoiceWalk:
 
         @use_named_args(space)
         def objective(**params):
+            nonlocal best_score, best_results, best_voice
             vec = np.array([params[f"dim_{i}"] for i in range(latent_dim)], dtype=np.float32)
             voice = torch.tensor(vec).view(original_shape)
             results = self.score_voice(voice)
-            nonlocal best_score, best_results, best_voice
 
             if results["score"] > best_score:
                 best_score = results["score"]
