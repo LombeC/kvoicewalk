@@ -506,6 +506,8 @@ class KVoiceWalk:
         dim = best_vec.shape[0]
 
         def objective(trial):
+            nonlocal best_results, best_voice  # Moved this to the top
+
             # Define deltas from PCA-best vector
             delta = np.array([trial.suggest_float(f"x{i}", -0.3, 0.3) for i in range(dim)])
             candidate_vec = best_vec + delta
@@ -516,27 +518,23 @@ class KVoiceWalk:
             result = self.score_voice(candidate_tensor, min_similarity)
             trial.set_user_attr("score", result["score"])
 
-            nonlocal best_results, best_voice
             if result["score"] > best_results["score"]:
                 best_results = result
                 best_voice = candidate_tensor
                 step = trial.number
                 tqdm.write(f'Step:{step:<4} Target Sim:{result["target_similarity"]:.3f} '
-                        f'Self Sim:{result["self_similarity"]:.3f} '
-                        f'Feature Sim:{result["feature_similarity"]:.3f} '
-                        f'Score:{result["score"]:.2f}')
+                           f'Self Sim:{result["self_similarity"]:.3f} '
+                           f'Feature Sim:{result["feature_similarity"]:.3f} '
+                           f'Score:{result["score"]:.2f}')
                 torch.save(best_voice, f'{OUT_DIR}/optuna_{result["score"]:.2f}_{result["target_similarity"]:.2f}_{step}.pt')
                 sf.write(f'{OUT_DIR}/optuna_{result["score"]:.2f}_{result["target_similarity"]:.2f}_{step}.wav',
-                        result["audio"], 24000)
+                         result["audio"], 24000)
 
             return -result["score"]  # Optuna minimizes
-
         study = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=42))
         study.optimize(objective, n_trials=step_limit // 2, show_progress_bar=True)
 
         tqdm.write(f">> PCA+Optuna search complete. Best Score: {best_results['score']:.2f}")
-
-
 
     def score_voice(self,voice: torch.Tensor,min_similarity: float = 0.0) -> dict[str,Any]:
         """Using a harmonic mean calculation to provide a score for the voice in similarity"""
