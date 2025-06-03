@@ -219,6 +219,7 @@ class KVoiceWalk:
                 f'Score:{best_results["score"]:.2f}')
 
         def objective(trial):
+            nonlocal best_results, best_voice
             # Sample perturbation vector around the starting vector
             delta = np.array([trial.suggest_float(f"x{i}", -0.5, 0.5) for i in range(dim)])
             candidate_vec = best_vec + delta
@@ -229,7 +230,7 @@ class KVoiceWalk:
             trial.set_user_attr("score", result["score"])
 
             # Save best audio so far
-            nonlocal best_results, best_voice
+
             if result["score"] > best_results["score"]:
                 best_results = result
                 best_voice = candidate_tensor
