@@ -71,6 +71,7 @@ class KVoiceWalk:
         from sklearn.decomposition import PCA
 
         tqdm.write(">> Starting PCA-guided initialization...")
+
         os.makedirs(OUT_DIR, exist_ok=True)
 
         # Score the actual starting voice
@@ -81,33 +82,28 @@ class KVoiceWalk:
 
         tqdm.write(f'Target Sim:{best_results["target_similarity"]:.3f}, Self Sim:{best_results["self_similarity"]:.3f}, Feature Sim:{best_results["feature_similarity"]:.2f}, Score:{best_results["score"]:.2f}')
 
-        # Prepare PCA on top performer voice embeddings to extract directions of high variance
+        # Prepare PCA on top performer voices
         stacked = torch.stack(self.voice_generator.voices).view(len(self.voice_generator.voices), -1).numpy()
         pca = PCA(n_components=4)
         pca.fit(stacked)
 
-        # Determine number of steps to take per PCA direction
         total_iters = pca.n_components_ * (step_limit // pca.n_components_)
         pbar = tqdm(total=total_iters, desc="PCA Search")
 
         step = 0
         for dim in range(pca.n_components_):
-            # Sweep along each principal component from -2 to +2 standard deviations
             for alpha in np.linspace(-2, 2, num=step_limit // pca.n_components_):
                 vec = best_vec + alpha * pca.components_[dim]
                 voice = torch.tensor(vec, dtype=torch.float32).view(original_shape)
 
-                # Early prune if similarity too low
                 min_similarity = best_results["target_similarity"] * 0.98
                 results = self.score_voice(voice, min_similarity)
 
-                # Accept if score improves
                 if results["score"] > best_results["score"]:
                     best_results = results
                     best_voice = voice
                     tqdm.write(f'Step:{step:<4} Target Sim:{best_results["target_similarity"]:.3f} Self Sim:{best_results["self_similarity"]:.3f} Feature Sim:{best_results["feature_similarity"]:.3f} Score:{best_results["score"]:.2f} PCA Dim:{dim} α:{alpha:.2f}')
 
-                    # Save best result
                     torch.save(best_voice, f'{OUT_DIR}/{best_results["score"]:.2f}_{best_results["target_similarity"]:.2f}_{step}.pt')
                     sf.write(f'{OUT_DIR}/{best_results["score"]:.2f}_{best_results["target_similarity"]:.2f}_{step}.wav', best_results["audio"], 24000)
 
@@ -116,7 +112,6 @@ class KVoiceWalk:
 
         pbar.close()
         tqdm.write(f">> PCA search complete. Best Score: {best_results['score']:.2f}")
-
 
     def random_walk(self,step_limit: int):
         os.makedirs(OUT_DIR,exist_ok=True)
